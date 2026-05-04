@@ -148,6 +148,93 @@ def _extract_skill_name(content: str, file_path: Path) -> str:
     return file_path.stem
 
 
+# --- Execution Graph Builder ---
+
+_KNOWN_TOOLS = {
+    "Bash", "Read", "Write", "Edit", "Glob", "Grep",
+    "WebFetch", "Agent", "Skill", "NotebookEdit",
+}
+
+_SHELL_COMMANDS = {
+    "curl", "wget", "npm", "pip", "pip3", "yarn", "pnpm",
+    "docker", "git", "ssh", "scp", "rsync", "make",
+    "python", "python3", "node", "ruby", "go", "cargo",
+}
+
+_URL_PATTERN_GRAPH = re.compile(r'https?://([a-zA-Z0-9\-._]+(?:\.[a-zA-Z]{2,}))')
+
+_FILE_ACCESS_PATTERNS = [
+    re.compile(r'(~/\.[a-zA-Z0-9_/.-]+)'),
+    re.compile(r'(/etc/[a-zA-Z0-9_/.-]+)'),
+    re.compile(r'(/var/[a-zA-Z0-9_/.-]+)'),
+    re.compile(r'(/tmp/[a-zA-Z0-9_/.-]+)'),
+]
+
+_SKILL_CALL_PATTERNS = [
+    re.compile(r'skill:\s*["\']([^"\']+)["\']'),
+    re.compile(r'(?:invoke|use|run)\s+(/[a-zA-Z][\w-]+)'),
+]
+
+_MCP_PATTERN = re.compile(r'mcp__([a-zA-Z0-9_]+)__([a-zA-Z0-9_]+)')
+
+_ENV_PATTERNS = [
+    re.compile(r'\$([A-Z][A-Z0-9_]{2,})'),
+    re.compile(r'(?:process\.env|os\.environ)[.\[]["\']?([A-Z][A-Z0-9_]{2,})'),
+]
+
+_IGNORE_GRAPH_DOMAINS = {
+    "localhost", "127.0.0.1", "example.com", "example.org",
+    "www.w3.org", "schemas.xmlsoap.org", "purl.org",
+    "cdn.tailwindcss.com", "cdn.jsdelivr.net",
+    "fonts.googleapis.com", "fonts.gstatic.com",
+}
+
+
+def build_execution_graph(content: str, skill_name: str) -> dict[str, list]:
+    """Build a local Execution Graph from skill file content."""
+    nodes: dict[str, str] = {}
+    edges: list[dict[str, str]] = []
+    root = f"skill:{skill_name}"
+
+    def _add(node_id: str, node_type: str) -> None:
+        if node_id not in nodes:
+            nodes[node_id] = node_type
+            edges.append({"from": root, "to": node_id, "type": node_type})
+
+    for tool in _KNOWN_TOOLS:
+        if re.search(rf'\b{tool}\b', content):
+            _add(tool, "tool_call")
+
+    for cmd in _SHELL_COMMANDS:
+        if re.search(rf'`[^`]*\b{cmd}\b[^`]*`|^\s*{cmd}\s', content, re.MULTILINE):
+            _add(cmd, "shell_command")
+
+    for match in _URL_PATTERN_GRAPH.finditer(content):
+        domain = match.group(1).lower()
+        if domain not in _IGNORE_GRAPH_DOMAINS:
+            _add(domain, "network_target")
+
+    for pattern in _FILE_ACCESS_PATTERNS:
+        for match in pattern.finditer(content):
+            _add(match.group(1), "file_access")
+
+    for pattern in _SKILL_CALL_PATTERNS:
+        for match in pattern.finditer(content):
+            _add(f"skill:{match.group(1)}", "skill_call")
+
+    for match in _MCP_PATTERN.finditer(content):
+        _add(f"mcp:{match.group(1)}:{match.group(2)}", "mcp_call")
+
+    for pattern in _ENV_PATTERNS:
+        for match in pattern.finditer(content):
+            _add(f"env:{match.group(1)}", "env_access")
+
+    return {
+        "nodes": [{"id": nid, "type": ntype} for nid, ntype in nodes.items()],
+        "edges": edges,
+    }
+
+
 class SkillBomAnalyzer(BaseAnalyzer):
     """Detect malicious patterns in agent supply chain assets."""
 
@@ -191,7 +278,7 @@ class SkillBomAnalyzer(BaseAnalyzer):
                     "findings": findings,
                     "finding_count": len(findings),
                     "max_severity": max_sev,
-                    "execution_graph": None,
+                    "execution_graph": build_execution_graph(content, skill_name),
                     "ecosystem": None,
                 },
             ))
