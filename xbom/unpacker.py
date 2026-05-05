@@ -41,9 +41,15 @@ def _extract_zip(
 ) -> int:
     """Extract a zip-like archive, tracking cumulative bytes."""
     cumulative = 0
+    dest_resolved = dest.resolve()
     with zipfile.ZipFile(archive_path, "r") as zf:
         for info in zf.infolist():
             if info.is_dir():
+                continue
+            # Path traversal protection
+            target = (dest / info.filename).resolve()
+            if not str(target).startswith(str(dest_resolved)):
+                logger.warning("Skipping path traversal attempt: %s", info.filename)
                 continue
             if cumulative + info.file_size > max_bytes:
                 raise ResourceLimitError(
