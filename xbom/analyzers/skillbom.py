@@ -44,7 +44,7 @@ _PATTERNS: list[dict[str, Any]] = [
             re.compile(r'you\s+are\s+now\s+(?:a|an|DAN)', re.IGNORECASE),
             re.compile(r'disregard\s+(?:all|any|your)\s+(?:previous|prior)', re.IGNORECASE),
             re.compile(r'(?:system|admin)\s*:\s*(?:override|new\s+instructions)', re.IGNORECASE),
-            re.compile(r'<!--.*(?:ignore|override|disregard).*-->', re.IGNORECASE | re.DOTALL),
+            re.compile(r'<!--[^>]{0,500}(?:ignore|override|disregard)[^>]{0,500}-->', re.IGNORECASE),
         ],
     },
     {
