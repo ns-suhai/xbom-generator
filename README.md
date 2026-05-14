@@ -103,7 +103,7 @@ xbom --version
 xbom scan testcases/maishou/
 ```
 
-### Running locally
+### Running locally (pip)
 
 ```bash
 # Scan a local skill folder
@@ -117,6 +117,43 @@ xbom scan artifact.tar.gz
 
 # Verbose mode for debugging
 xbom scan ./path/to/skill/ --verbose
+```
+
+### Running locally (Docker + Colima)
+
+For a fully isolated environment with all dependencies pre-installed, use the provided `deploy.sh` script with Colima:
+
+```bash
+# Start Colima (if not running)
+colima start
+
+# Check Docker/Colima status
+./deploy.sh status
+
+# Build the Docker image
+./deploy.sh build
+
+# Scan a package or directory
+./deploy.sh scan ./testcases/maishou/
+./deploy.sh scan ~/Downloads/package.jar --format both --verbose
+
+# Run tests inside the container
+./deploy.sh test
+
+# Open a shell in the container for debugging
+./deploy.sh shell
+
+# Clean up (remove image and containers)
+./deploy.sh clean
+```
+
+The Docker image includes all dependencies (syft, libmagic, trufflehog) so no local installation is needed beyond Docker/Colima.
+
+**Environment variables** (for `--enrich` mode):
+```bash
+export NETSKOPE_API_TOKEN="your-token"
+export NETSKOPE_TENANT_URL="https://your-tenant.goskope.com"
+./deploy.sh scan package.jar --enrich
 ```
 
 ## Usage
