@@ -21,6 +21,64 @@ def generate_html_report(result: ScanResult) -> str:
     return _TEMPLATE.replace("/* __SCAN_DATA__ */{}", data_json)
 
 
+def _build_ecosystem_data(result: ScanResult) -> list[dict[str, object]]:
+    """Build ecosystem metadata for each skill entry."""
+    ecosystems = []
+    for entry in result.skill_entries:
+        provenance = entry.metadata.get("provenance", {})
+        graph = entry.metadata.get("execution_graph", {})
+        findings = entry.metadata.get("findings", [])
+        refs = entry.metadata.get("referenced_scripts", [])
+
+        # Compute local scores (0-100 scale like Manifold)
+        finding_count = len(findings)
+        max_sev = entry.metadata.get("max_severity")
+        static_score = 100
+        if max_sev == "CRITICAL":
+            static_score = 20
+        elif max_sev == "HIGH":
+            static_score = 40
+        elif max_sev == "MEDIUM":
+            static_score = 65
+        elif finding_count > 0:
+            static_score = 80
+
+        # Lineage score: penalize missing version, missing author
+        lineage_score = 100
+        if not provenance.get("version"):
+            lineage_score -= 30
+        if not provenance.get("author"):
+            lineage_score -= 20
+        if refs:
+            lineage_score -= 10  # External script dependencies add risk
+
+        # Composite score
+        composite_score = int(static_score * 0.6 + lineage_score * 0.4)
+
+        nodes = graph.get("nodes", [])
+        edges = graph.get("edges", [])
+        network_targets = [n["id"] for n in nodes if n.get("type") == "network_target"]
+
+        ecosystems.append({
+            "name": entry.name,
+            "version": provenance.get("version", "unversioned"),
+            "author": provenance.get("author", "unknown"),
+            "description": provenance.get("description", ""),
+            "source": entry.metadata.get("file_type", "unknown"),
+            "static_score": static_score,
+            "lineage_score": lineage_score,
+            "composite_score": composite_score,
+            "finding_count": finding_count,
+            "max_severity": max_sev or "Clean",
+            "graph_nodes": len(nodes),
+            "graph_edges": len(edges),
+            "network_targets": network_targets,
+            "referenced_scripts": refs,
+            "content_hash": provenance.get("content_hash", ""),
+        })
+    return ecosystems
+
+
 def _build_report_data(result: ScanResult) -> dict[str, object]:
     return {
         "package": result.package_path,
@@ -48,6 +106,7 @@ def _build_report_data(result: ScanResult) -> dict[str, object]:
         "cbom": [_entry_to_dict(e) for e in result.cbom_entries],
         "secrets": [_entry_to_dict(e) for e in result.secrets_entries],
         "skillbom": [_entry_to_dict(e) for e in result.skill_entries],
+        "ecosystem": _build_ecosystem_data(result),
         "warnings": list(result.warnings),
         "errors": list(result.errors),
     }
@@ -129,7 +188,8 @@ code,td.mono{font-family:'JetBrains Mono',monospace}
 <!-- Tab Navigation -->
 <nav class="max-w-7xl mx-auto px-6 pt-4 flex flex-wrap gap-1 border-b border-slate-700/30">
   <template x-for="t in tabs" :key="t.id">
-    <button class="tab-btn" :class="{'active':activeTab===t.id}" @click="activeTab=t.id" x-text="t.label+' ('+data.summary[t.id]+')'"></button>
+    <button class="tab-btn" :class="{'active':activeTab===t.id}" @click="activeTab=t.id"
+      x-text="t.id==='ecosystem'?t.label+' ('+(data.ecosystem||[]).length+')':t.label+' ('+(data.summary[t.id]||0)+')'"></button>
   </template>
 </nav>
 
@@ -321,6 +381,119 @@ code,td.mono{font-family:'JetBrains Mono',monospace}
     </div>
   </div>
 
+  <!-- Ecosystem Tab -->
+  <div x-show="activeTab==='ecosystem'">
+    <template x-if="(data.ecosystem||[]).length===0">
+      <div class="glass rounded-lg p-8 text-center text-slate-400">No ecosystem data available. Scan skill files to generate ecosystem intelligence.</div>
+    </template>
+    <template x-for="eco in data.ecosystem||[]" :key="eco.name">
+      <div class="glass rounded-lg overflow-hidden mb-6">
+        <!-- Ecosystem Header -->
+        <div class="px-6 py-4 border-b border-slate-700/30">
+          <div class="flex items-center justify-between">
+            <div>
+              <h3 class="text-lg font-bold text-slate-100" x-text="eco.name"></h3>
+              <p class="text-sm text-slate-400 mt-1" x-text="eco.description||'No description'"></p>
+            </div>
+            <div class="text-right">
+              <div class="text-2xl font-bold" :class="eco.composite_score>=70?'text-green-400':eco.composite_score>=40?'text-yellow-400':'text-red-400'"
+                   x-text="eco.composite_score+'/100'"></div>
+              <div class="text-xs text-slate-500">Composite Score</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Score Breakdown -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 p-6">
+          <!-- Static Analysis Score -->
+          <div class="bg-slate-800/50 rounded-lg p-4">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-semibold text-slate-400 uppercase">Static Score</span>
+              <span class="text-lg font-bold" :class="eco.static_score>=70?'text-green-400':eco.static_score>=40?'text-yellow-400':'text-red-400'"
+                    x-text="eco.static_score"></span>
+            </div>
+            <div class="w-full bg-slate-700 rounded-full h-2">
+              <div class="h-2 rounded-full transition-all" :class="eco.static_score>=70?'bg-green-500':eco.static_score>=40?'bg-yellow-500':'bg-red-500'"
+                   :style="'width:'+eco.static_score+'%'"></div>
+            </div>
+            <div class="text-xs text-slate-500 mt-2">Pattern analysis &amp; code inspection</div>
+          </div>
+
+          <!-- Lineage Score -->
+          <div class="bg-slate-800/50 rounded-lg p-4">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-semibold text-slate-400 uppercase">Lineage Score</span>
+              <span class="text-lg font-bold" :class="eco.lineage_score>=70?'text-green-400':eco.lineage_score>=40?'text-yellow-400':'text-red-400'"
+                    x-text="eco.lineage_score"></span>
+            </div>
+            <div class="w-full bg-slate-700 rounded-full h-2">
+              <div class="h-2 rounded-full transition-all" :class="eco.lineage_score>=70?'bg-green-500':eco.lineage_score>=40?'bg-yellow-500':'bg-red-500'"
+                   :style="'width:'+eco.lineage_score+'%'"></div>
+            </div>
+            <div class="text-xs text-slate-500 mt-2">Provenance, versioning &amp; authorship</div>
+          </div>
+
+          <!-- Risk Summary -->
+          <div class="bg-slate-800/50 rounded-lg p-4">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-semibold text-slate-400 uppercase">Risk Level</span>
+              <span class="badge" :class="eco.max_severity==='CRITICAL'?'bg-red-500/20 text-red-400':eco.max_severity==='HIGH'?'bg-orange-500/20 text-orange-400':eco.max_severity==='MEDIUM'?'bg-yellow-500/20 text-yellow-400':'bg-green-500/20 text-green-400'"
+                    x-text="eco.max_severity"></span>
+            </div>
+            <div class="text-sm text-slate-300 mt-2" x-text="eco.finding_count+' finding'+(eco.finding_count!==1?'s':'')"></div>
+            <div class="text-xs text-slate-500 mt-1" x-text="eco.graph_nodes+' graph nodes, '+eco.graph_edges+' edges'"></div>
+          </div>
+        </div>
+
+        <!-- Metadata Grid -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-px bg-slate-700/30 border-t border-slate-700/30">
+          <div class="bg-slate-900/50 p-3">
+            <div class="text-xs text-slate-500 uppercase">Author</div>
+            <div class="text-sm text-slate-200 font-mono mt-1" x-text="eco.author"></div>
+          </div>
+          <div class="bg-slate-900/50 p-3">
+            <div class="text-xs text-slate-500 uppercase">Version</div>
+            <div class="text-sm font-mono mt-1" :class="eco.version==='unversioned'?'text-yellow-400':'text-slate-200'" x-text="eco.version"></div>
+          </div>
+          <div class="bg-slate-900/50 p-3">
+            <div class="text-xs text-slate-500 uppercase">Source Type</div>
+            <div class="text-sm text-slate-200 mt-1" x-text="eco.source"></div>
+          </div>
+          <div class="bg-slate-900/50 p-3">
+            <div class="text-xs text-slate-500 uppercase">Content Hash</div>
+            <div class="text-xs text-slate-400 font-mono mt-1 truncate" x-text="eco.content_hash?eco.content_hash.substring(0,16)+'...':'—'"></div>
+          </div>
+        </div>
+
+        <!-- Network Targets -->
+        <div x-show="eco.network_targets.length>0" class="border-t border-slate-700/30 p-4">
+          <div class="text-xs font-semibold text-slate-400 uppercase mb-2">Network Targets</div>
+          <div class="flex flex-wrap gap-2">
+            <template x-for="t in eco.network_targets" :key="t">
+              <span class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-red-500/10 border border-red-500/20 text-xs text-red-300 font-mono">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="1.5"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" stroke-width="1.5"/></svg>
+                <span x-text="t"></span>
+              </span>
+            </template>
+          </div>
+        </div>
+
+        <!-- Referenced Scripts -->
+        <div x-show="eco.referenced_scripts.length>0" class="border-t border-slate-700/30 p-4">
+          <div class="text-xs font-semibold text-slate-400 uppercase mb-2">Referenced Scripts</div>
+          <div class="flex flex-wrap gap-2">
+            <template x-for="s in eco.referenced_scripts" :key="s">
+              <span class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-sky-500/10 border border-sky-500/20 text-xs text-sky-300 font-mono">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                <span x-text="s"></span>
+              </span>
+            </template>
+          </div>
+        </div>
+      </div>
+    </template>
+  </div>
+
   <!-- Warnings -->
   <template x-if="data.warnings.length>0">
     <div class="mt-4 glass rounded-lg p-4">
@@ -348,7 +521,7 @@ function xbomApp(){return{
   tabs:[
     {id:'sbom',label:'SBOM'},{id:'saasbom',label:'SaaSBOM'},
     {id:'mlbom',label:'ML-BOM'},{id:'cbom',label:'CBOM'},{id:'secrets',label:'Secrets'},
-    {id:'skillbom',label:'Skills'}
+    {id:'skillbom',label:'Skills'},{id:'ecosystem',label:'Ecosystem'}
   ],
   init(){this.$nextTick(()=>{this.drawRadar();this.renderGraphs()})},
   filtered(tab){
