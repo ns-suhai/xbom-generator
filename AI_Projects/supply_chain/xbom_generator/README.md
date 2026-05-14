@@ -70,15 +70,31 @@ pip install python-magic
 
 ## Usage
 
-### CLI
+### Scan a Package File
 
 ```bash
-# Scan a package file (zip, tar.gz, jar, deb, rpm, etc.)
 xbom scan package.tar.gz
+xbom scan artifact.jar
+xbom scan release.zip
+```
 
-# Scan a directory directly (skill folder, plugin, source tree)
+Supported formats: `.zip`, `.tar.gz`, `.tar.bz2`, `.jar`, `.war`, `.ear`, `.deb`, `.rpm`
+
+### Scan a Directory
+
+Scan a folder directly without packaging — ideal for skill folders, plugins, or source trees:
+
+```bash
 xbom scan ./my-skill/
+xbom scan /path/to/plugin/
+xbom scan testcases/maishou/
+```
 
+When a directory is provided, it is scanned in-place (no extraction step). The classifier walks all files recursively, detects skill files, scripts, configs, and runs all analyzers including cross-file execution tracing.
+
+### CLI Options
+
+```bash
 # Output as HTML report
 xbom scan ./my-skill/ --format html
 
