@@ -1,0 +1,49 @@
+## Eval Run: 2026-05-13 (Baseline)
+
+### Environment
+- Python: 3.9.5
+- Branch: HACK-200
+- Commit: 66b3bd62
+
+### Results
+
+| Metric | Value | Status |
+|--------|-------|--------|
+| Tests collected | 158 | PASS |
+| Tests passed | 158 | PASS |
+| Tests failed | 0 | PASS |
+| Coverage | 88.35% | PASS (>80%) |
+| Duration | 1.13s | PASS |
+
+### Coverage by Module
+
+| Module | Coverage | Status |
+|--------|----------|--------|
+| models/bom_types.py | 100% | EXCELLENT |
+| report/html_generator.py | 100% | EXCELLENT |
+| exceptions.py | 100% | EXCELLENT |
+| assembler.py | 96% | GOOD |
+| analyzers/sbom.py | 96% | GOOD |
+| enrichment/netskope.py | 95% | GOOD |
+| analyzers/secrets.py | 94% | GOOD |
+| analyzers/mlbom.py | 93% | GOOD |
+| analyzers/skillbom.py | 92% | GOOD |
+| scoring/risk_scorer.py | 90% | GOOD |
+| analyzers/cbom.py | 90% | GOOD |
+| enrichment/ecosystem.py | 89% | GOOD |
+| analyzers/saasbom.py | 88% | GOOD |
+| classifier.py | 87% | GOOD |
+| analyzers/base.py | 86% | OK |
+| cli.py | 82% | OK |
+| unpacker.py | 80% | THRESHOLD |
+| scanner.py | 72% | NEEDS WORK |
+
+### Regression Baseline
+- All 158 tests: PASS
+- pass^3: NOT YET RUN
+
+### Gaps Identified
+1. scanner.py at 72% — integration paths (graceful degradation, enrichment) undertested
+2. unpacker.py at 80% — deb/rpm extraction paths need more edge cases
+3. cli.py at 82% — skill summary output, error paths
+4. mypy --strict: NOT YET RUN

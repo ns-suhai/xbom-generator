@@ -6,7 +6,7 @@ import html
 import json
 from datetime import datetime, timezone
 
-from xbom.models.bom_types import BomType, ScanResult
+from xbom.models.bom_types import BomEntry, BomType, ScanResult
 
 
 def generate_html_report(result: ScanResult) -> str:
@@ -21,7 +21,7 @@ def generate_html_report(result: ScanResult) -> str:
     return _TEMPLATE.replace("/* __SCAN_DATA__ */{}", data_json)
 
 
-def _build_report_data(result: ScanResult) -> dict:
+def _build_report_data(result: ScanResult) -> dict[str, object]:
     return {
         "package": result.package_path,
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -53,7 +53,7 @@ def _build_report_data(result: ScanResult) -> dict:
     }
 
 
-def _entry_to_dict(entry) -> dict:
+def _entry_to_dict(entry: "BomEntry") -> dict[str, object]:
     return {
         "name": entry.name,
         "version": entry.version or "",

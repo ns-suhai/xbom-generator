@@ -190,7 +190,7 @@ _IGNORE_GRAPH_DOMAINS = {
 }
 
 
-def build_execution_graph(content: str, skill_name: str) -> dict[str, list]:
+def build_execution_graph(content: str, skill_name: str) -> dict[str, list[dict[str, str]]]:
     """Build a local Execution Graph from skill file content."""
     nodes: dict[str, str] = {}
     edges: list[dict[str, str]] = []
@@ -312,4 +312,5 @@ class SkillBomAnalyzer(BaseAnalyzer):
     def _max_severity(findings: list[dict[str, Any]]) -> str | None:
         if not findings:
             return None
-        return max(findings, key=lambda f: _SEVERITY_ORDER.get(f["severity"], 0))["severity"]
+        result: str = max(findings, key=lambda f: _SEVERITY_ORDER.get(f["severity"], 0))["severity"]
+        return result

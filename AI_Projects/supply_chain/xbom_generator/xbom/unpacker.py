@@ -105,7 +105,7 @@ def _extract_tar(
             if not str(resolved).startswith(str(dest.resolve())):
                 logger.warning("Skipping path traversal attempt: %s", member.name)
                 continue
-            tf.extract(member, dest, filter="data")
+            tf.extract(member, dest, filter="data")  # type: ignore[call-arg]
             cumulative += member.size
     return cumulative
 

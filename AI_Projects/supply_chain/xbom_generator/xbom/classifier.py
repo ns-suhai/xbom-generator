@@ -93,8 +93,9 @@ def _is_skill_file(file_path: Path, extracted_dir: Path) -> bool:
 def _get_mime_type(file_path: Path) -> str:
     """Get MIME type for a file using python-magic."""
     try:
-        import magic
-        return magic.from_file(str(file_path), mime=True)
+        import magic  # type: ignore[import]
+        result: str = magic.from_file(str(file_path), mime=True)
+        return result
     except ImportError:
         # Fallback: basic extension-based detection
         return _extension_fallback(file_path)
