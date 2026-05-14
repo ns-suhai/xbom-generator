@@ -1,0 +1,12 @@
+tests/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+.coverage
+output/
+input/
+.staging/
+deploy.sh
+docker-compose.yml
+.git/

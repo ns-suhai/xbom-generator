@@ -1,0 +1,48 @@
+name: 'xBOM Scan'
+description: 'Generate Extended Bill of Materials (xBOM) for binary packages'
+inputs:
+  package:
+    description: 'Path to the binary package to scan'
+    required: true
+  format:
+    description: 'Output format: json, html, or both'
+    default: 'json'
+  enrich:
+    description: 'Enable Netskope telemetry enrichment'
+    default: 'false'
+  max-extract-size:
+    description: 'Maximum extraction size (e.g., 1GB)'
+    default: '1GB'
+outputs:
+  safe-level:
+    description: 'SAFE level (1-5)'
+  risk-score:
+    description: 'Risk score (1.0-5.0)'
+  report-path:
+    description: 'Path to generated report'
+runs:
+  using: 'composite'
+  steps:
+    - name: Install syft
+      shell: bash
+      run: curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+
+    - name: Install xbom
+      shell: bash
+      run: pip install -e ${{ github.action_path }}
+
+    - name: Run xBOM scan
+      shell: bash
+      id: scan
+      run: |
+        xbom scan "${{ inputs.package }}" \
+          --format "${{ inputs.format }}" \
+          --output-dir ./xbom-output \
+          --max-extract-size "${{ inputs.max-extract-size }}" \
+          ${{ inputs.enrich == 'true' && '--enrich' || '' }}
+
+    - name: Upload xBOM artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: xbom-report
+        path: ./xbom-output/
