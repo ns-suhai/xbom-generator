@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import logging
 import re
 from pathlib import Path
@@ -107,7 +108,127 @@ _PATTERNS: list[dict[str, Any]] = [
             re.compile(r'\b(?:eslint-confg|prettir|webpck)\b', re.IGNORECASE),
         ],
     },
+    {
+        "category": "hardcoded_c2",
+        "severity": "HIGH",
+        "patterns": [
+            # Hardcoded public IP addresses (not in version strings within quotes)
+            re.compile(r'(?:https?://|host["\s:=]+|ip["\s:=]+|addr["\s:=]+)\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'),
+        ],
+    },
+    {
+        "category": "hardcoded_credentials",
+        "severity": "HIGH",
+        "patterns": [
+            re.compile(r'["\']?(?:openid|token|auth_token|session_id)["\']?\s*[:=]\s*["\'][0-9a-f]{16,}["\']', re.IGNORECASE),
+            re.compile(r'["\']?(?:api_key|apikey|secret)["\']?\s*[:=]\s*["\'][^"\']{16,}["\']', re.IGNORECASE),
+            re.compile(r'["\']?(?:password|passwd)["\']?\s*[:=]\s*["\'][^"\']+["\']', re.IGNORECASE),
+        ],
+    },
+    {
+        "category": "suspicious_api_endpoint",
+        "severity": "MEDIUM",
+        "patterns": [
+            # API endpoints that aren't well-known providers
+            re.compile(r'https?://(?:appapi|api)\.[a-z0-9-]+\.\w{2,}/api/', re.IGNORECASE),
+        ],
+    },
+    {
+        "category": "affiliate_tracking",
+        "severity": "MEDIUM",
+        "patterns": [
+            re.compile(r'(?:invite_?code|referral_?code|aff_?id|affiliate)\s*[=:]\s*["\']?\w+', re.IGNORECASE),
+        ],
+    },
 ]
+
+# --- Cross-File Script Reference Patterns ---
+
+_SCRIPT_REF_PATTERNS = [
+    # uv run scripts/main.py, python scripts/main.py, python3 scripts/foo.py
+    re.compile(r'(?:uv\s+run|python3?|node|ruby|bash|sh)\s+([^\s\'"`|;&>]+\.(?:py|js|ts|rb|sh))', re.IGNORECASE),
+    # ./scripts/main.py (directly executable)
+    re.compile(r'(?:^|\s)\./([^\s\'"`|;&>]+\.(?:py|js|ts|rb|sh))', re.MULTILINE),
+]
+
+# IP address pattern for detecting hardcoded C2 infrastructure
+_IPV4_PATTERN = re.compile(r'\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b')
+
+# Known private/reserved CIDR ranges to exclude from C2 detection
+_PRIVATE_NETS = [
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("0.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("224.0.0.0/4"),  # multicast
+    ipaddress.ip_network("255.255.255.255/32"),
+]
+
+# Version-like patterns to exclude (e.g., "3.7.7.2" in a User-Agent)
+_VERSION_CONTEXT_PATTERN = re.compile(
+    r'(?:version|ver|v)["\s:=/]*\d+\.\d+\.\d+\.\d+|'
+    r'[A-Za-z]+/\d+\.\d+\.\d+\.\d+',
+    re.IGNORECASE,
+)
+
+
+def _is_public_ip(ip_str: str) -> bool:
+    """Check if an IP string is a valid public (non-private) IP address."""
+    try:
+        addr = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    return not any(addr in net for net in _PRIVATE_NETS)
+
+
+def _find_hardcoded_ips(content: str) -> list[dict[str, Any]]:
+    """Detect hardcoded public IP addresses, excluding version strings."""
+    findings: list[dict[str, Any]] = []
+    seen_ips: set[str] = set()
+
+    for line_num, line in enumerate(content.splitlines(), start=1):
+        for match in _IPV4_PATTERN.finditer(line):
+            ip_str = match.group(1)
+            if ip_str in seen_ips:
+                continue
+            if not _is_public_ip(ip_str):
+                continue
+            # Check if this IP is in a version context (e.g. User-Agent/3.7.7.2)
+            # Look at surrounding context
+            start = max(0, match.start() - 30)
+            context = line[start:match.end() + 10]
+            if _VERSION_CONTEXT_PATTERN.search(context):
+                continue
+            seen_ips.add(ip_str)
+            findings.append({
+                "category": "hardcoded_c2",
+                "severity": "HIGH",
+                "pattern": f"Hardcoded public IP: {ip_str}",
+                "line": line_num,
+            })
+
+    return findings
+
+
+def resolve_script_references(content: str, skill_dir: Path) -> list[Path]:
+    """Find local script files referenced by shell commands in a skill file."""
+    referenced: list[Path] = []
+    for pattern in _SCRIPT_REF_PATTERNS:
+        for match in pattern.finditer(content):
+            script_rel = match.group(1)
+            # Try resolving relative to the skill file's directory
+            script_path = skill_dir / script_rel
+            if script_path.is_file():
+                referenced.append(script_path)
+                continue
+            # Try resolving relative to parent (common layout: skill.md + scripts/)
+            script_path = skill_dir.parent / script_rel
+            if script_path.is_file():
+                referenced.append(script_path)
+    return list(dict.fromkeys(referenced))  # deduplicate preserving order
+
 
 _FILE_TYPE_MAP = {
     "skill.md": "skill_md",
@@ -291,9 +412,56 @@ class SkillBomAnalyzer(BaseAnalyzer):
                 continue
 
             findings = self._scan_patterns(content)
-            max_sev = self._max_severity(findings)
             skill_name = _extract_skill_name(content, file_path)
             provenance = _extract_provenance(content, file_path)
+
+            # Cross-file execution tracing: resolve referenced scripts
+            referenced_scripts = resolve_script_references(content, file_path.parent)
+            referenced_contents: list[tuple[str, str]] = []
+            for script_path in referenced_scripts:
+                try:
+                    script_content = script_path.read_text(errors="ignore")
+                    referenced_contents.append((str(script_path.name), script_content))
+                    # Scan referenced script for patterns too
+                    script_findings = self._scan_patterns(script_content)
+                    for f in script_findings:
+                        f["source_file"] = str(script_path.name)
+                    findings.extend(script_findings)
+                    # Detect hardcoded IPs in scripts
+                    ip_findings = _find_hardcoded_ips(script_content)
+                    for f in ip_findings:
+                        f["source_file"] = str(script_path.name)
+                    findings.extend(ip_findings)
+                except OSError:
+                    continue
+
+            # Also check the skill file itself for hardcoded IPs
+            findings.extend(_find_hardcoded_ips(content))
+
+            max_sev = self._max_severity(findings)
+
+            # Build execution graph including referenced scripts
+            graph = build_execution_graph(content, skill_name)
+            for script_name, script_content in referenced_contents:
+                script_graph = build_execution_graph(script_content, script_name)
+                # Merge script's nodes/edges into main graph, re-rooting via skill
+                for node in script_graph["nodes"]:
+                    if node not in graph["nodes"]:
+                        graph["nodes"].append(node)
+                        graph["edges"].append({
+                            "from": f"script:{script_name}",
+                            "to": node["id"],
+                            "type": node["type"],
+                        })
+                # Add the script node itself
+                script_node = {"id": f"script:{script_name}", "type": "referenced_script"}
+                if script_node not in graph["nodes"]:
+                    graph["nodes"].append(script_node)
+                    graph["edges"].append({
+                        "from": f"skill:{skill_name}",
+                        "to": f"script:{script_name}",
+                        "type": "script_execution",
+                    })
 
             try:
                 rel_path = str(file_path.relative_to(extracted_dir))
@@ -311,7 +479,8 @@ class SkillBomAnalyzer(BaseAnalyzer):
                     "findings": findings,
                     "finding_count": len(findings),
                     "max_severity": max_sev,
-                    "execution_graph": build_execution_graph(content, skill_name),
+                    "execution_graph": graph,
+                    "referenced_scripts": [str(p.name) for p in referenced_scripts],
                     "ecosystem": None,
                     "provenance": provenance,
                 },

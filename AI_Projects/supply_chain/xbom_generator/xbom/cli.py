@@ -12,7 +12,7 @@ import click
 from xbom import __version__
 from xbom.assembler import to_json
 from xbom.models.bom_types import SafeLevel
-from xbom.scanner import scan_package
+from xbom.scanner import scan_directory, scan_package
 from xbom.unpacker import DEFAULT_MAX_EXTRACT_BYTES
 
 # ANSI color codes for terminal output
@@ -66,7 +66,11 @@ def scan(
     skip_analyzers: str,
     verbose: bool,
 ) -> None:
-    """Scan a binary package and generate xBOM report."""
+    """Scan a package file or directory and generate xBOM report.
+
+    PACKAGE_PATH can be a binary package (zip, tar.gz, jar, etc.) or a directory.
+    When a directory is provided, it is scanned directly without unpacking.
+    """
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.WARNING,
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
@@ -79,21 +83,31 @@ def scan(
     max_bytes = _parse_size(max_extract_size)
     skip = set(s.strip() for s in skip_analyzers.split(",") if s.strip())
 
-    click.echo(f"Scanning {pkg.name}...")
-    click.echo(f"  Unpacking... ", nl=False)
+    is_directory = pkg.is_dir()
+    click.echo(f"Scanning {pkg.name}{'/' if is_directory else ''}...")
+    if not is_directory:
+        click.echo("  Unpacking... ", nl=False)
 
     try:
-        result = scan_package(
-            package_path=pkg,
-            max_extract_bytes=max_bytes,
-            skip_analyzers=skip,
-            enrich=enrich,
-        )
+        if is_directory:
+            result = scan_directory(
+                directory=pkg,
+                skip_analyzers=skip,
+                enrich=enrich,
+            )
+        else:
+            result = scan_package(
+                package_path=pkg,
+                max_extract_bytes=max_bytes,
+                skip_analyzers=skip,
+                enrich=enrich,
+            )
     except Exception as exc:
         click.secho(f"\nError: {exc}", fg="red", err=True)
         sys.exit(1)
 
-    click.echo("done.")
+    if not is_directory:
+        click.echo("done.")
 
     # Print summary
     color = _COLORS.get(result.safe_level, "white")
