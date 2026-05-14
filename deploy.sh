@@ -178,53 +178,80 @@ cmd_scan() {
     ensure_colima_running
     ensure_image
 
-    local host_file="$1"
+    local host_path="$1"
     shift
 
     # Resolve to absolute path
-    if [[ ! "$host_file" = /* ]]; then
-        host_file="$(cd "$(dirname "$host_file")" && pwd)/$(basename "$host_file")"
+    if [[ ! "$host_path" = /* ]]; then
+        host_path="$(cd "$(dirname "$host_path")" && pwd)/$(basename "$host_path")"
     fi
 
-    if [[ ! -f "$host_file" ]]; then
-        log_error "File not found: ${host_file}"
+    if [[ ! -e "$host_path" ]]; then
+        log_error "Path not found: ${host_path}"
         exit 1
     fi
 
-    local filename
-    filename="$(basename "$host_file")"
-    local host_dir
-    host_dir="$(dirname "$host_file")"
+    local is_dir=false
+    [[ -d "$host_path" ]] && is_dir=true
+
+    local scan_name
+    scan_name="$(basename "$host_path")"
 
     # Create output directory on host
     local output_dir="${SCRIPT_DIR}/output"
     mkdir -p "${output_dir}"
 
-    # Colima only mounts $HOME by default (virtiofs).
-    # Files outside $HOME (e.g. /tmp, /var) are not visible in the VM.
-    # Stage them to a temp dir under the project when needed.
     local cleanup_staging=""
-    if ! is_path_mounted "$host_dir"; then
-        log_warn "Path '${host_dir}' is outside Colima mount (${colima_mount_root})."
-        log_warn "Staging file to project directory..."
-        local staging_dir="${SCRIPT_DIR}/.staging"
-        mkdir -p "${staging_dir}"
-        cp "${host_file}" "${staging_dir}/${filename}"
-        host_dir="${staging_dir}"
-        cleanup_staging="${staging_dir}"
+    local mount_path=""
+    local container_scan_path=""
+
+    if [[ "$is_dir" == "true" ]]; then
+        # Directory scan: mount the directory directly as /input
+        mount_path="$host_path"
+        container_scan_path="/input"
+
+        # Colima mount check for directories
+        if ! is_path_mounted "$host_path"; then
+            log_warn "Path '${host_path}' is outside Colima mount (${colima_mount_root})."
+            log_warn "Staging directory to project directory..."
+            local staging_dir="${SCRIPT_DIR}/.staging/${scan_name}"
+            mkdir -p "${staging_dir}"
+            cp -r "${host_path}/." "${staging_dir}/"
+            mount_path="${staging_dir}"
+            cleanup_staging="${SCRIPT_DIR}/.staging"
+        fi
+    else
+        # File scan: mount parent directory
+        local host_dir
+        host_dir="$(dirname "$host_path")"
+        mount_path="$host_dir"
+        container_scan_path="/input/${scan_name}"
+
+        # Colima only mounts $HOME by default (virtiofs).
+        # Files outside $HOME (e.g. /tmp, /var) are not visible in the VM.
+        # Stage them to a temp dir under the project when needed.
+        if ! is_path_mounted "$host_dir"; then
+            log_warn "Path '${host_dir}' is outside Colima mount (${colima_mount_root})."
+            log_warn "Staging file to project directory..."
+            local staging_dir="${SCRIPT_DIR}/.staging"
+            mkdir -p "${staging_dir}"
+            cp "${host_path}" "${staging_dir}/${scan_name}"
+            mount_path="${staging_dir}"
+            cleanup_staging="${staging_dir}"
+        fi
     fi
 
-    log_info "Scanning ${filename}..."
+    log_info "Scanning ${scan_name}${is_dir:+/}..."
 
     local exit_code=0
     docker run --rm \
         --name "${CONTAINER_NAME}-scan" \
-        -v "${host_dir}:/input:ro" \
+        -v "${mount_path}:/input:ro" \
         -v "${output_dir}:/output" \
         -e "NETSKOPE_API_TOKEN=${NETSKOPE_API_TOKEN:-}" \
         -e "NETSKOPE_TENANT_URL=${NETSKOPE_TENANT_URL:-}" \
         "${IMAGE_NAME}:${IMAGE_TAG}" \
-        scan "/input/${filename}" \
+        scan "${container_scan_path}" \
         --output-dir /output \
         "$@" || exit_code=$?
 
