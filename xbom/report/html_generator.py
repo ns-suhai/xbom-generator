@@ -70,6 +70,7 @@ _TEMPLATE = '''<!DOCTYPE html>
 <script src="https://cdn.tailwindcss.com"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
 <style>
 body{background:#0f172a;color:#e2e8f0;font-family:Inter,system-ui,sans-serif}
 .glass{background:rgba(30,41,59,.65);backdrop-filter:blur(12px);border:1px solid rgba(56,189,248,.12)}
@@ -252,27 +253,72 @@ code,td.mono{font-family:'JetBrains Mono',monospace}
   </div>
 
   <!-- Skills Tab -->
-  <div x-show="activeTab==='skillbom'" class="glass rounded-lg overflow-hidden">
+  <div x-show="activeTab==='skillbom'">
     <template x-if="filtered('skillbom').length===0">
-      <div class="p-8 text-center text-green-400/80">No agent supply chain assets found.</div>
+      <div class="glass rounded-lg p-8 text-center text-green-400/80">No agent supply chain assets found.</div>
     </template>
-    <table x-show="filtered('skillbom').length>0">
-      <thead><tr><th>Skill</th><th>Type</th><th>Findings</th><th>Max Severity</th><th>Exec Graph</th></tr></thead>
-      <tbody>
-        <template x-for="e in filtered('skillbom')" :key="e.name">
-          <tr>
-            <td class="font-semibold text-slate-200" x-text="e.name"></td>
-            <td class="text-slate-400" x-text="e.metadata.file_type||'—'"></td>
-            <td x-text="e.metadata.finding_count||0"></td>
-            <td>
-              <span class="badge" :class="e.metadata.max_severity==='CRITICAL'?'bg-red-500/20 text-red-400':e.metadata.max_severity==='HIGH'?'bg-orange-500/20 text-orange-400':e.metadata.max_severity==='MEDIUM'?'bg-yellow-500/20 text-yellow-400':'bg-green-500/20 text-green-400'"
-                    x-text="e.metadata.max_severity||'Clean'"></span>
-            </td>
-            <td class="text-xs text-slate-400" x-text="e.metadata.execution_graph?e.metadata.execution_graph.nodes.length+' nodes':'—'"></td>
-          </tr>
-        </template>
-      </tbody>
-    </table>
+    <div x-show="filtered('skillbom').length>0">
+      <!-- Skills Table -->
+      <div class="glass rounded-lg overflow-hidden mb-6">
+        <table>
+          <thead><tr><th>Skill</th><th>Type</th><th>Findings</th><th>Max Severity</th><th>Referenced Scripts</th><th>Graph Nodes</th></tr></thead>
+          <tbody>
+            <template x-for="e in filtered('skillbom')" :key="e.name">
+              <tr>
+                <td class="font-semibold text-slate-200" x-text="e.name"></td>
+                <td class="text-slate-400" x-text="e.metadata.file_type||'—'"></td>
+                <td x-text="e.metadata.finding_count||0"></td>
+                <td>
+                  <span class="badge" :class="e.metadata.max_severity==='CRITICAL'?'bg-red-500/20 text-red-400':e.metadata.max_severity==='HIGH'?'bg-orange-500/20 text-orange-400':e.metadata.max_severity==='MEDIUM'?'bg-yellow-500/20 text-yellow-400':'bg-green-500/20 text-green-400'"
+                        x-text="e.metadata.max_severity||'Clean'"></span>
+                </td>
+                <td class="mono text-xs text-slate-400" x-text="(e.metadata.referenced_scripts||[]).join(', ')||'—'"></td>
+                <td class="text-xs text-slate-400" x-text="e.metadata.execution_graph?e.metadata.execution_graph.nodes.length+' nodes':'—'"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Findings Detail -->
+      <template x-for="e in filtered('skillbom')" :key="'findings-'+e.name">
+        <div x-show="e.metadata.finding_count>0" class="glass rounded-lg overflow-hidden mb-6">
+          <div class="px-4 py-2 border-b border-slate-700/30">
+            <span class="text-sm font-semibold text-slate-200" x-text="e.name+' — Findings'"></span>
+          </div>
+          <table>
+            <thead><tr><th>Category</th><th>Severity</th><th>Source</th><th>Line</th></tr></thead>
+            <tbody>
+              <template x-for="f in e.metadata.findings||[]" :key="f.category+f.line">
+                <tr>
+                  <td class="text-slate-200" x-text="f.category.replace(/_/g,' ')"></td>
+                  <td>
+                    <span class="badge" :class="f.severity==='CRITICAL'?'bg-red-500/20 text-red-400':f.severity==='HIGH'?'bg-orange-500/20 text-orange-400':'bg-yellow-500/20 text-yellow-400'"
+                          x-text="f.severity"></span>
+                  </td>
+                  <td class="mono text-xs text-slate-400" x-text="f.source_file||'SKILL.md'"></td>
+                  <td class="text-slate-400" x-text="f.line"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </template>
+
+      <!-- Execution Graph (Analysis Graph) -->
+      <template x-for="e in filtered('skillbom')" :key="'graph-'+e.name">
+        <div x-show="e.metadata.execution_graph && e.metadata.execution_graph.nodes.length>0" class="glass rounded-lg overflow-hidden mb-6">
+          <div class="px-4 py-2 border-b border-slate-700/30 flex items-center gap-2">
+            <svg class="w-4 h-4 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            <span class="text-sm font-semibold text-slate-200" x-text="e.name+' — Execution Graph'"></span>
+            <span class="text-xs text-slate-500 ml-2" x-text="e.metadata.execution_graph.nodes.length+' nodes, '+e.metadata.execution_graph.edges.length+' edges'"></span>
+          </div>
+          <div class="p-4">
+            <div :id="'mermaid-'+e.name.replace(/[^a-zA-Z0-9]/g,'')" class="mermaid-container bg-slate-900/50 rounded-lg p-4 overflow-x-auto"></div>
+          </div>
+        </div>
+      </template>
+    </div>
   </div>
 
   <!-- Warnings -->
@@ -289,6 +335,12 @@ code,td.mono{font-family:'JetBrains Mono',monospace}
 </footer>
 
 <script>
+mermaid.initialize({theme:'dark',themeVariables:{
+  primaryColor:'#1e3a5f',primaryTextColor:'#e2e8f0',primaryBorderColor:'#38bdf8',
+  lineColor:'#475569',secondaryColor:'#1e293b',tertiaryColor:'#0f172a',
+  fontFamily:'JetBrains Mono,monospace',fontSize:'12px'
+},flowchart:{curve:'basis',padding:12}});
+
 function xbomApp(){return{
   data:/* __SCAN_DATA__ */{},
   activeTab:'sbom',
@@ -298,7 +350,7 @@ function xbomApp(){return{
     {id:'mlbom',label:'ML-BOM'},{id:'cbom',label:'CBOM'},{id:'secrets',label:'Secrets'},
     {id:'skillbom',label:'Skills'}
   ],
-  init(){this.$nextTick(()=>this.drawRadar())},
+  init(){this.$nextTick(()=>{this.drawRadar();this.renderGraphs()})},
   filtered(tab){
     const items=this.data[tab]||[];
     if(!this.search)return items;
@@ -324,6 +376,84 @@ function xbomApp(){return{
     },options:{scales:{r:{min:0,max:5,ticks:{stepSize:1,color:'#475569',font:{size:8}},
       grid:{color:'rgba(71,85,105,.3)'},pointLabels:{color:'#94a3b8',font:{size:9}}}},
       plugins:{legend:{display:false}},responsive:true,maintainAspectRatio:true}})
+  },
+  renderGraphs(){
+    const skills=this.data.skillbom||[];
+    skills.forEach(e=>{
+      const graph=e.metadata.execution_graph;
+      if(!graph||!graph.nodes.length)return;
+      const containerId='mermaid-'+e.name.replace(/[^a-zA-Z0-9]/g,'');
+      const container=document.getElementById(containerId);
+      if(!container)return;
+
+      let lines=['graph LR'];
+      const nodeStyles={};
+
+      graph.nodes.forEach((n,i)=>{
+        const id='n'+i;
+        const label=n.id.replace(/"/g,"'");
+        switch(n.type){
+          case'referenced_script':
+            lines.push('  '+id+'(["'+label+'"])');
+            nodeStyles[id]='fill:#1e3a5f,stroke:#38bdf8,color:#38bdf8';
+            break;
+          case'network_target':
+            lines.push('  '+id+'(("'+label+'"))');
+            nodeStyles[id]='fill:#3b1a1a,stroke:#f87171,color:#fca5a5';
+            break;
+          case'tool_call':
+            lines.push('  '+id+'["'+label+'"]');
+            nodeStyles[id]='fill:#1a2e1a,stroke:#4ade80,color:#4ade80';
+            break;
+          case'shell_command':
+            lines.push('  '+id+'>>"'+label+'"]');
+            nodeStyles[id]='fill:#2d1f0e,stroke:#fbbf24,color:#fbbf24';
+            break;
+          case'file_access':
+            lines.push('  '+id+'[/"'+label+'"/]');
+            nodeStyles[id]='fill:#1f1a2e,stroke:#a78bfa,color:#a78bfa';
+            break;
+          case'env_access':
+            lines.push('  '+id+'{{"'+label+'"}}');
+            nodeStyles[id]='fill:#1a2e2d,stroke:#2dd4bf,color:#2dd4bf';
+            break;
+          case'skill_call':case'mcp_call':
+            lines.push('  '+id+'(["'+label+'"])');
+            nodeStyles[id]='fill:#2e1a2e,stroke:#f472b6,color:#f472b6';
+            break;
+          default:
+            lines.push('  '+id+'["'+label+'"]');
+            nodeStyles[id]='fill:#1e293b,stroke:#64748b,color:#94a3b8';
+        }
+      });
+
+      graph.edges.forEach(edge=>{
+        const fromIdx=graph.nodes.findIndex(n=>n.id===edge.from);
+        const toIdx=graph.nodes.findIndex(n=>n.id===edge.to);
+        if(fromIdx<0){
+          const rootId='root';
+          if(!lines.find(l=>l.includes(rootId+'['))){
+            lines.splice(1,0,'  '+rootId+'["'+edge.from.replace(/"/g,"'")+'"]');
+            nodeStyles[rootId]='fill:#0c4a6e,stroke:#0ea5e9,color:#e0f2fe,stroke-width:2px';
+          }
+          if(toIdx>=0) lines.push('  '+rootId+' --> n'+toIdx);
+        }else{
+          if(toIdx>=0) lines.push('  n'+fromIdx+' --> n'+toIdx);
+        }
+      });
+
+      Object.entries(nodeStyles).forEach(([id,style])=>{
+        lines.push('  style '+id+' '+style);
+      });
+
+      const graphDef=lines.join('\\n');
+      mermaid.render('mermaid-svg-'+containerId,graphDef).then(({svg})=>{
+        container.replaceChildren();
+        container.insertAdjacentHTML('afterbegin',svg);
+      }).catch(err=>{
+        container.textContent='Graph render error: '+err.message;
+      });
+    });
   },
   exportJSON(){
     const blob=new Blob([JSON.stringify(this.data,null,2)],{type:'application/json'});

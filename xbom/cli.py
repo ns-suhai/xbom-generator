@@ -109,6 +109,15 @@ def scan(
     if not is_directory:
         click.echo("done.")
 
+    # Determine output name: prefer skill name, fall back to directory/file name
+    output_name = pkg.stem
+    if output_name == "input" and result.skill_entries:
+        # Docker mount uses /input — use skill name instead
+        output_name = result.skill_entries[0].name
+    elif is_directory and result.skill_entries:
+        # For directory scans, prefer skill name over directory name
+        output_name = result.skill_entries[0].name
+
     # Print summary
     color = _COLORS.get(result.safe_level, "white")
     click.echo()
@@ -148,14 +157,14 @@ def scan(
 
     # Write outputs
     if output_format in ("json", "both"):
-        json_path = out / f"xbom-{pkg.stem}.json"
+        json_path = out / f"xbom-{output_name}.json"
         json_path.write_text(to_json(result))
         click.echo(f"\n  CycloneDX JSON: {json_path}")
 
     if output_format in ("html", "both"):
         try:
             from xbom.report.html_generator import generate_html_report
-            html_path = out / f"xbom-{pkg.stem}.html"
+            html_path = out / f"xbom-{output_name}.html"
             html_path.write_text(generate_html_report(result))
             click.echo(f"  HTML Report:    {html_path}")
         except ImportError:
