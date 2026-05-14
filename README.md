@@ -50,22 +50,73 @@ Referenced scripts are:
 2. Checked for hardcoded public IP addresses
 3. Included in the execution graph (network targets, file access, env vars)
 
-## Installation
+## Local Environment Setup
+
+### Prerequisites
+
+- Python 3.11+
+- pip or uv
+
+### Install from source
 
 ```bash
-pip install -e .
+# Clone the repository
+git clone https://github.com/ns-suhai/xbom-generator.git
+cd xbom-generator
+
+# Create virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Install in development mode with all dependencies
+pip install -e ".[dev]"
 ```
 
-Optional dependencies for full analysis:
+### Optional system dependencies
+
+For full analysis capabilities, install these external tools:
+
 ```bash
-# SBOM generation
-brew install syft
+# SBOM generation (extracts dependencies from binaries)
+brew install syft          # macOS
+# or: curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh
 
 # Secret scanning
-brew install trufflehog
+brew install trufflehog    # macOS
+# or: pip install trufflehog
 
-# File type detection
-pip install python-magic
+# File type detection (libmagic)
+brew install libmagic      # macOS
+# or: apt-get install libmagic1  # Ubuntu/Debian
+```
+
+### Verify installation
+
+```bash
+# Run the test suite
+python -m pytest tests/ -v
+
+# Check CLI is available
+xbom --version
+
+# Quick scan test
+xbom scan testcases/maishou/
+```
+
+### Running locally
+
+```bash
+# Scan a local skill folder
+xbom scan ./path/to/skill/
+
+# Scan with HTML report output
+xbom scan ./path/to/skill/ --format both --output-dir ./reports/
+
+# Scan a package file
+xbom scan artifact.tar.gz
+
+# Verbose mode for debugging
+xbom scan ./path/to/skill/ --verbose
 ```
 
 ## Usage
