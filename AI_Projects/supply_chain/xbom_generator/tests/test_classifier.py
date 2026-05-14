@@ -65,7 +65,7 @@ def test_all_categories_present(tmp_dir: Path) -> None:
     (d / "test.py").write_text("print('hello')")
     classified = classify_files(d)
     expected_keys = {"executables", "libraries", "configs", "models",
-                     "certificates", "scripts", "skills", "data", "unknown"}
+                     "certificates", "scripts", "skills", "mcp_configs", "data", "unknown"}
     assert set(classified.keys()) == expected_keys
 
 
@@ -91,7 +91,7 @@ def test_classify_mcp_config(tmp_dir: Path) -> None:
     d.mkdir()
     (d / ".mcp.json").write_text('{"servers": {}}')
     result = classify_files(d)
-    assert len(result["skills"]) == 1
+    assert len(result["mcp_configs"]) == 1
 
 
 def test_classify_agent_instructions(tmp_dir: Path) -> None:

@@ -1,6 +1,7 @@
 """SkillBom analyzer - detect malicious patterns in agent supply chain assets."""
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 from pathlib import Path
@@ -148,6 +149,37 @@ def _extract_skill_name(content: str, file_path: Path) -> str:
     return file_path.stem
 
 
+def _extract_provenance(content: str, file_path: Path) -> dict[str, Any]:
+    """Extract provenance metadata: hash, version, author, description."""
+    provenance: dict[str, Any] = {
+        "content_hash": hashlib.sha256(content.encode()).hexdigest(),
+    }
+
+    # Extract frontmatter fields (YAML-style: key: value)
+    version_match = re.search(r'^version:\s*(.+)$', content, re.MULTILINE)
+    if version_match:
+        provenance["version"] = version_match.group(1).strip().strip('"\'')
+
+    author_match = re.search(r'^(?:author|publisher):\s*(.+)$', content, re.MULTILINE)
+    if author_match:
+        provenance["author"] = author_match.group(1).strip().strip('"\'')
+
+    desc_match = re.search(r'^description:\s*(.+)$', content, re.MULTILINE)
+    if desc_match:
+        provenance["description"] = desc_match.group(1).strip().strip('"\'')
+
+    # JSON format provenance
+    json_version = re.search(r'"version"\s*:\s*"([^"]+)"', content)
+    if json_version and "version" not in provenance:
+        provenance["version"] = json_version.group(1)
+
+    json_author = re.search(r'"(?:author|publisher)"\s*:\s*"([^"]+)"', content)
+    if json_author and "author" not in provenance:
+        provenance["author"] = json_author.group(1)
+
+    return provenance
+
+
 # --- Execution Graph Builder ---
 
 _KNOWN_TOOLS = {
@@ -261,6 +293,7 @@ class SkillBomAnalyzer(BaseAnalyzer):
             findings = self._scan_patterns(content)
             max_sev = self._max_severity(findings)
             skill_name = _extract_skill_name(content, file_path)
+            provenance = _extract_provenance(content, file_path)
 
             try:
                 rel_path = str(file_path.relative_to(extracted_dir))
@@ -271,7 +304,7 @@ class SkillBomAnalyzer(BaseAnalyzer):
                 bom_type=BomType.SKILLBOM,
                 component_type=ComponentType.SKILL,
                 name=skill_name,
-                version=None,
+                version=provenance.get("version"),
                 metadata={
                     "file_path": rel_path,
                     "file_type": _detect_file_type(file_path),
@@ -280,6 +313,7 @@ class SkillBomAnalyzer(BaseAnalyzer):
                     "max_severity": max_sev,
                     "execution_graph": build_execution_graph(content, skill_name),
                     "ecosystem": None,
+                    "provenance": provenance,
                 },
             ))
 
