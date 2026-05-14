@@ -7,8 +7,10 @@ import tempfile
 import time
 from pathlib import Path
 
+from xbom.agent_manifest import compute_agent_manifest
 from xbom.analyzers.base import BaseAnalyzer
 from xbom.analyzers.cbom import CbomAnalyzer
+from xbom.analyzers.mcp import McpBomAnalyzer
 from xbom.analyzers.mlbom import MlBomAnalyzer
 from xbom.analyzers.saasbom import SaasBomAnalyzer
 from xbom.analyzers.sbom import SbomAnalyzer
@@ -31,6 +33,7 @@ _DEFAULT_ANALYZERS: list[type[BaseAnalyzer]] = [
     CbomAnalyzer,
     SecretsAnalyzer,
     SkillBomAnalyzer,
+    McpBomAnalyzer,
 ]
 
 
@@ -118,6 +121,9 @@ def scan_package(
     score, dimension_scores = compute_risk_score(entries_tuple)
     safe_level = SafeLevel.from_score(score)
 
+    # Step 6: Compute Agent Manifest (if agentic content detected)
+    agent_manifest = compute_agent_manifest(entries_tuple)
+
     duration_ms = int(time.time() * 1000) - start_ms
 
     return ScanResult(
@@ -126,6 +132,7 @@ def scan_package(
         risk_score=score,
         safe_level=safe_level,
         dimension_scores=dimension_scores,
+        agent_manifest=agent_manifest,
         scan_duration_ms=duration_ms,
         errors=tuple(errors),
         warnings=tuple(warnings),
