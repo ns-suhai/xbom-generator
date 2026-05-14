@@ -58,17 +58,30 @@ _MODEL_EXTENSIONS = {
 
 _CERT_EXTENSIONS = {".pem", ".crt", ".cer", ".der", ".p12", ".pfx", ".key"}
 
+# MCP config detection (separate from skills for dedicated analyzer)
+_MCP_FILENAMES = {".mcp.json", "mcp.json", "claude_desktop_config.json"}
+_MCP_FILENAME_PREFIXES = ("mcp-config",)
+
 # Agent supply chain asset detection (name/path based)
 _SKILL_FILENAMES = {
     "skill.md", "plugin.json", "plugin.yaml",
-    ".mcp.json", "mcp.json",
     "action.yml", "action.yaml",
     "agents.md", "claude.md", "gemini.md",
 }
 
-_SKILL_FILENAME_PREFIXES = ("mcp-config",)
+_SKILL_FILENAME_PREFIXES: tuple[str, ...] = ()
 
 _SKILL_PARENT_DIRS = {".claude", ".cursor", ".copilot"}
+
+
+def _is_mcp_config(file_path: Path) -> bool:
+    """Check if a file is an MCP server configuration."""
+    name_lower = file_path.name.lower()
+    if name_lower in _MCP_FILENAMES:
+        return True
+    if any(name_lower.startswith(p) for p in _MCP_FILENAME_PREFIXES):
+        return True
+    return False
 
 
 def _is_skill_file(file_path: Path, extracted_dir: Path) -> bool:
@@ -93,8 +106,9 @@ def _is_skill_file(file_path: Path, extracted_dir: Path) -> bool:
 def _get_mime_type(file_path: Path) -> str:
     """Get MIME type for a file using python-magic."""
     try:
-        import magic
-        return magic.from_file(str(file_path), mime=True)
+        import magic  # type: ignore[import]
+        result: str = magic.from_file(str(file_path), mime=True)
+        return result
     except ImportError:
         # Fallback: basic extension-based detection
         return _extension_fallback(file_path)
@@ -161,6 +175,7 @@ def classify_files(extracted_dir: Path) -> dict[str, list[Path]]:
         "certificates": [],
         "scripts": [],
         "skills": [],
+        "mcp_configs": [],
         "data": [],
         "unknown": [],
     }
@@ -169,6 +184,11 @@ def classify_files(extracted_dir: Path) -> dict[str, list[Path]]:
         if not file_path.is_file():
             continue
         if file_path.stat().st_size == 0:
+            continue
+
+        # MCP configs detected first (before skills, since .mcp.json is specific)
+        if _is_mcp_config(file_path):
+            result["mcp_configs"].append(file_path)
             continue
 
         # Skill files detected by name/path first (before MIME)

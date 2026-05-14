@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import gzip
+import io
+import struct
+import tarfile
 import zipfile
 from pathlib import Path
 
@@ -130,3 +134,129 @@ def zip_bomb(tmp_path: Path) -> Path:
         # Write 10MB of zeros (compresses well, expands large)
         zf.writestr("big.bin", b"\x00" * (10 * 1024 * 1024))
     return path
+
+
+def _build_ar_member(name: str, data: bytes) -> bytes:
+    """Build a single ar archive member (BSD/GNU format)."""
+    name_bytes = name.encode().ljust(16, b"/")[:16]
+    # ar header: name(16) + mtime(12) + uid(6) + gid(6) + mode(8) + size(10) + magic(2)
+    header = (
+        name_bytes
+        + b"0           "  # mtime (12)
+        + b"0     "  # uid (6)
+        + b"0     "  # gid (6)
+        + b"100644  "  # mode (8)
+        + f"{len(data):<10d}".encode()  # size (10)
+        + b"`\n"  # magic (2)
+    )
+    # Pad to even boundary
+    padding = b"\n" if len(data) % 2 != 0 else b""
+    return header + data + padding
+
+
+@pytest.fixture
+def sample_deb(tmp_path: Path) -> Path:
+    """Create a minimal .deb file (ar archive with data.tar.gz inside)."""
+    deb_path = tmp_path / "sample.deb"
+
+    # Build data.tar.gz with sample files
+    data_buf = io.BytesIO()
+    with tarfile.open(fileobj=data_buf, mode="w:gz") as tf:
+        # Add usr/bin/hello
+        info = tarfile.TarInfo(name="usr/bin/hello")
+        content = b"#!/bin/sh\necho hello\n"
+        info.size = len(content)
+        tf.addfile(info, io.BytesIO(content))
+        # Add usr/share/doc/README
+        info2 = tarfile.TarInfo(name="usr/share/doc/README")
+        content2 = b"Sample package readme\n"
+        info2.size = len(content2)
+        tf.addfile(info2, io.BytesIO(content2))
+    data_tar_gz = data_buf.getvalue()
+
+    # Build control.tar.gz
+    ctrl_buf = io.BytesIO()
+    with tarfile.open(fileobj=ctrl_buf, mode="w:gz") as tf:
+        info = tarfile.TarInfo(name="control")
+        content = b"Package: sample\nVersion: 1.0\n"
+        info.size = len(content)
+        tf.addfile(info, io.BytesIO(content))
+    control_tar_gz = ctrl_buf.getvalue()
+
+    # Assemble ar archive
+    ar_data = b"!<arch>\n"
+    ar_data += _build_ar_member("debian-binary", b"2.0\n")
+    ar_data += _build_ar_member("control.tar.gz", control_tar_gz)
+    ar_data += _build_ar_member("data.tar.gz", data_tar_gz)
+
+    deb_path.write_bytes(ar_data)
+    return deb_path
+
+
+@pytest.fixture
+def sample_rpm(tmp_path: Path) -> Path:
+    """Create a minimal .rpm file with a cpio.gz payload."""
+    rpm_path = tmp_path / "sample.rpm"
+
+    # Build cpio archive (newc/SVR4 format) with sample files
+    def _cpio_entry(name: str, data: bytes) -> bytes:
+        """Create a single cpio newc entry."""
+        namesize = len(name) + 1  # includes null terminator
+        filesize = len(data)
+        # cpio newc header (110 bytes of fixed ASCII hex fields)
+        header = (
+            b"070701"  # magic
+            + b"%08X" % 0  # ino
+            + b"%08X" % 0o100644  # mode (regular file)
+            + b"%08X" % 0  # uid
+            + b"%08X" % 0  # gid
+            + b"%08X" % 1  # nlink
+            + b"%08X" % 0  # mtime
+            + b"%08X" % filesize  # filesize
+            + b"%08X" % 0  # devmajor
+            + b"%08X" % 0  # devminor
+            + b"%08X" % 0  # rdevmajor
+            + b"%08X" % 0  # rdevminor
+            + b"%08X" % namesize  # namesize
+            + b"%08X" % 0  # check
+        )
+        entry = header + name.encode() + b"\x00"
+        # Pad header+name to 4-byte boundary
+        pad_len = (4 - (len(entry) % 4)) % 4
+        entry += b"\x00" * pad_len
+        # Add file data
+        entry += data
+        # Pad data to 4-byte boundary
+        data_pad = (4 - (len(data) % 4)) % 4
+        entry += b"\x00" * data_pad
+        return entry
+
+    cpio_data = b""
+    cpio_data += _cpio_entry("usr/bin/hello", b"#!/bin/sh\necho hello\n")
+    cpio_data += _cpio_entry("usr/share/doc/README", b"Sample RPM readme\n")
+    # Trailer
+    cpio_data += _cpio_entry("TRAILER!!!", b"")
+
+    # Compress with gzip
+    payload_gz = gzip.compress(cpio_data)
+
+    # Minimal RPM lead (96 bytes) + empty signature/header + payload
+    # RPM magic: 0xedabeedb
+    lead = struct.pack(">I", 0xEDABEEDB)  # magic
+    lead += struct.pack(">BB", 3, 0)  # major.minor version
+    lead += struct.pack(">H", 0)  # type (binary)
+    lead += struct.pack(">H", 0)  # archnum
+    lead += b"sample\x00" + b"\x00" * 59  # name (66 bytes)
+    lead += struct.pack(">H", 1)  # osnum
+    lead += struct.pack(">H", 5)  # signature_type
+    lead += b"\x00" * 16  # reserved
+    assert len(lead) == 96
+
+    # Signature header (RPM header magic + empty index)
+    # header structure: magic(3) + version(1) + reserved(4) + nindex(4) + hsize(4) = 16 bytes
+    sig_header = b"\x8e\xad\xe8\x01" + struct.pack(">III", 0, 0, 0)
+    # Main header (also empty for our test purposes)
+    main_header = b"\x8e\xad\xe8\x01" + struct.pack(">III", 0, 0, 0)
+
+    rpm_path.write_bytes(lead + sig_header + main_header + payload_gz)
+    return rpm_path

@@ -35,13 +35,12 @@ class SbomAnalyzer(BaseAnalyzer):
         extracted_dir: Path,
         classified_files: dict[str, list[Path]],
     ) -> list[BomEntry]:
-        syft_path = shutil.which("syft")
-        if not syft_path:
+        if not self.is_available():
             raise DependencyMissingError(SYFT_INSTALL_HINT)
 
         try:
             result = subprocess.run(
-                [syft_path, str(extracted_dir), "-o", "cyclonedx-json"],
+                ["syft", str(extracted_dir), "-o", "cyclonedx-json"],
                 capture_output=True,
                 text=True,
                 timeout=120,

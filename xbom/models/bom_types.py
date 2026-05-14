@@ -14,6 +14,7 @@ class BomType(str, Enum):
     CBOM = "cbom"
     SECRETS = "secrets"
     SKILLBOM = "skillbom"
+    MCPBOM = "mcpbom"
 
 
 class ComponentType(str, Enum):
@@ -23,6 +24,7 @@ class ComponentType(str, Enum):
     CRYPTO_ASSET = "crypto-asset"
     SECRET = "secret"
     SKILL = "skill"
+    MCP_SERVER = "mcp-server"
 
 
 class SafeLevel(int, Enum):
@@ -72,6 +74,30 @@ class DimensionScore:
     details: str = ""
 
 
+class AutonomyLevel(int, Enum):
+    TOOL_ASSISTED = 1
+    SEMI_AUTONOMOUS = 2
+    AUTONOMOUS_GUARDRAILS = 3
+    FULLY_AUTONOMOUS = 4
+
+    @property
+    def label(self) -> str:
+        return {1: "L1: Tool-Assisted", 2: "L2: Semi-Autonomous",
+                3: "L3: Autonomous + Guardrails", 4: "L4: Fully Autonomous"}[self.value]
+
+
+@dataclass(frozen=True)
+class AgentManifest:
+    autonomy_level: AutonomyLevel
+    trust_boundaries: dict[str, Any] = field(default_factory=dict)
+    delegation_chains: tuple[str, ...] = ()
+    communication_protocols: tuple[str, ...] = ()
+    total_tools_exposed: int = 0
+    has_network_access: bool = False
+    has_shell_access: bool = False
+    has_file_write: bool = False
+
+
 @dataclass(frozen=True)
 class ScanResult:
     package_path: str
@@ -79,6 +105,7 @@ class ScanResult:
     risk_score: float
     safe_level: SafeLevel
     dimension_scores: tuple[DimensionScore, ...] = ()
+    agent_manifest: AgentManifest | None = None
     scan_duration_ms: int = 0
     errors: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
@@ -106,3 +133,7 @@ class ScanResult:
     @property
     def skill_entries(self) -> tuple[BomEntry, ...]:
         return tuple(e for e in self.entries if e.bom_type == BomType.SKILLBOM)
+
+    @property
+    def mcp_entries(self) -> tuple[BomEntry, ...]:
+        return tuple(e for e in self.entries if e.bom_type == BomType.MCPBOM)

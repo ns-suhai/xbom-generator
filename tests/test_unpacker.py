@@ -12,6 +12,60 @@ from xbom.exceptions import (
 from xbom.unpacker import extract_package
 
 
+# --- .deb extraction tests ---
+
+
+def test_extract_deb(sample_deb: Path, tmp_dir: Path) -> None:
+    """Should extract data.tar contents from a .deb archive."""
+    dest = tmp_dir / "out"
+    result = extract_package(sample_deb, dest)
+    assert result == dest
+    assert (dest / "usr" / "bin" / "hello").exists()
+    assert (dest / "usr" / "share" / "doc" / "README").exists()
+
+
+def test_extract_deb_bomb_protection(sample_deb: Path, tmp_dir: Path) -> None:
+    """Should abort deb extraction when exceeding max_bytes."""
+    dest = tmp_dir / "out"
+    with pytest.raises(ResourceLimitError, match="limit"):
+        extract_package(sample_deb, dest, max_bytes=1)
+
+
+def test_extract_deb_corrupt(tmp_dir: Path) -> None:
+    """Should raise ExtractionError for corrupt .deb files."""
+    corrupt = tmp_dir / "corrupt.deb"
+    corrupt.write_bytes(b"!<arch>\nnot-valid-ar-content")
+    with pytest.raises(ExtractionError, match="Failed to extract"):
+        extract_package(corrupt)
+
+
+# --- .rpm extraction tests ---
+
+
+def test_extract_rpm(sample_rpm: Path, tmp_dir: Path) -> None:
+    """Should extract cpio payload from an .rpm archive."""
+    dest = tmp_dir / "out"
+    result = extract_package(sample_rpm, dest)
+    assert result == dest
+    assert (dest / "usr" / "bin" / "hello").exists()
+    assert (dest / "usr" / "share" / "doc" / "README").exists()
+
+
+def test_extract_rpm_bomb_protection(sample_rpm: Path, tmp_dir: Path) -> None:
+    """Should abort rpm extraction when exceeding max_bytes."""
+    dest = tmp_dir / "out"
+    with pytest.raises(ResourceLimitError, match="limit"):
+        extract_package(sample_rpm, dest, max_bytes=1)
+
+
+def test_extract_rpm_corrupt(tmp_dir: Path) -> None:
+    """Should raise ExtractionError for corrupt .rpm files."""
+    corrupt = tmp_dir / "corrupt.rpm"
+    corrupt.write_bytes(b"\xed\xab\xee\xdb" + b"\x00" * 50)
+    with pytest.raises(ExtractionError, match="Failed to extract"):
+        extract_package(corrupt)
+
+
 def test_extract_jar(sample_jar: Path, tmp_dir: Path) -> None:
     dest = tmp_dir / "out"
     result = extract_package(sample_jar, dest)

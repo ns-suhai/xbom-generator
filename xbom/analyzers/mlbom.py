@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
 from xbom.analyzers.base import BaseAnalyzer
 from xbom.models.bom_types import BomEntry, BomType, ComponentType
@@ -59,18 +60,19 @@ class MlBomAnalyzer(BaseAnalyzer):
             if model_card:
                 metadata.update(model_card)
 
+            version_val = metadata.get("version")
             entries.append(BomEntry(
                 bom_type=BomType.MLBOM,
                 component_type=ComponentType.MODEL,
                 name=model_path.stem,
-                version=metadata.get("version"),
+                version=str(version_val) if version_val is not None else None,
                 metadata=metadata,
             ))
 
         logger.info("ML-BOM: found %d model files", len(entries))
         return entries
 
-    def _find_model_card(self, model_path: Path) -> dict:
+    def _find_model_card(self, model_path: Path) -> dict[str, Any]:
         """Look for model card or metadata JSON near the model file."""
         candidates = [
             model_path.parent / "config.json",

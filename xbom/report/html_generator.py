@@ -6,7 +6,7 @@ import html
 import json
 from datetime import datetime, timezone
 
-from xbom.models.bom_types import BomType, ScanResult
+from xbom.models.bom_types import BomEntry, BomType, ScanResult
 
 
 def generate_html_report(result: ScanResult) -> str:
@@ -21,7 +21,7 @@ def generate_html_report(result: ScanResult) -> str:
     return _TEMPLATE.replace("/* __SCAN_DATA__ */{}", data_json)
 
 
-def _build_report_data(result: ScanResult) -> dict:
+def _build_report_data(result: ScanResult) -> dict[str, object]:
     return {
         "package": result.package_path,
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -53,7 +53,7 @@ def _build_report_data(result: ScanResult) -> dict:
     }
 
 
-def _entry_to_dict(entry) -> dict:
+def _entry_to_dict(entry: "BomEntry") -> dict[str, object]:
     return {
         "name": entry.name,
         "version": entry.version or "",
@@ -67,9 +67,9 @@ _TEMPLATE = '''<!DOCTYPE html>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>xBOM Report</title>
-<script src="https://cdn.tailwindcss.com/3.4.17"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js" integrity="sha384-JMCk5VBaxHsPS/jVEFn3Fy/M6IxfMPtYEuGBiS20FV5l6RAFMzE+gWJHmvUfROVH" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" integrity="sha384-Ggk6LGRl6bJesXEsVkNZPceNz4p9OoI60DjGPO1mYMBjFJq/EONqBW6+HfwxE2s0" crossorigin="anonymous"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <style>
 body{background:#0f172a;color:#e2e8f0;font-family:Inter,system-ui,sans-serif}
 .glass{background:rgba(30,41,59,.65);backdrop-filter:blur(12px);border:1px solid rgba(56,189,248,.12)}

@@ -90,6 +90,26 @@ def _entry_to_vulnerability(entry: BomEntry) -> dict[str, Any]:
     return vuln
 
 
+def _entry_to_mcp_service(entry: BomEntry) -> dict[str, Any]:
+    """Convert an MCP-BOM entry to a CycloneDX service dict."""
+    service: dict[str, Any] = {"name": entry.name}
+    props: list[dict[str, str]] = []
+    props.append({"name": "xbom:agent:type", "value": "mcp-server"})
+    if entry.metadata.get("protocol"):
+        props.append({"name": "xbom:agent:protocol", "value": entry.metadata["protocol"]})
+    if entry.metadata.get("trust_level"):
+        props.append({"name": "xbom:agent:trust-level", "value": entry.metadata["trust_level"]})
+    if entry.metadata.get("tools_declared") is not None:
+        props.append({"name": "xbom:agent:tools-declared", "value": str(entry.metadata["tools_declared"])})
+    if entry.metadata.get("credential_refs"):
+        props.append({"name": "xbom:agent:credential-refs", "value": ",".join(entry.metadata["credential_refs"])})
+    if entry.metadata.get("url"):
+        service["endpoints"] = [entry.metadata["url"]]
+    if props:
+        service["properties"] = props
+    return service
+
+
 def _map_component_type(ct: ComponentType) -> str:
     return {
         ComponentType.LIBRARY: "library",
@@ -97,6 +117,7 @@ def _map_component_type(ct: ComponentType) -> str:
         ComponentType.MODEL: "machine-learning-model",
         ComponentType.CRYPTO_ASSET: "library",
         ComponentType.SECRET: "library",
+        ComponentType.MCP_SERVER: "library",
     }.get(ct, "library")
 
 
@@ -120,6 +141,8 @@ def assemble_cyclonedx(scan_result: ScanResult) -> dict[str, Any]:
         for entry in scan_result.entries:
             if entry.bom_type == BomType.SAASBOM:
                 services.append(_entry_to_service(entry))
+            elif entry.bom_type == BomType.MCPBOM:
+                services.append(_entry_to_mcp_service(entry))
             elif entry.bom_type == BomType.SECRETS:
                 vulnerabilities.append(_entry_to_vulnerability(entry))
             else:
@@ -146,6 +169,25 @@ def assemble_cyclonedx(scan_result: ScanResult) -> dict[str, Any]:
                 ],
             },
         }
+
+        # Agent manifest properties
+        if scan_result.agent_manifest is not None:
+            am = scan_result.agent_manifest
+            doc["metadata"]["properties"].extend([
+                {"name": "xbom:agent:autonomy-level", "value": am.autonomy_level.label},
+                {"name": "xbom:agent:total-tools", "value": str(am.total_tools_exposed)},
+                {"name": "xbom:agent:has-shell", "value": str(am.has_shell_access).lower()},
+                {"name": "xbom:agent:has-network", "value": str(am.has_network_access).lower()},
+                {"name": "xbom:agent:has-file-write", "value": str(am.has_file_write).lower()},
+            ])
+            if am.communication_protocols:
+                doc["metadata"]["properties"].append(
+                    {"name": "xbom:agent:protocols", "value": ",".join(am.communication_protocols)}
+                )
+            if am.delegation_chains:
+                doc["metadata"]["properties"].append(
+                    {"name": "xbom:agent:delegation-chains", "value": str(len(am.delegation_chains))}
+                )
 
         if components:
             doc["components"] = components

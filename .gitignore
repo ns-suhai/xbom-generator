@@ -5,27 +5,12 @@ __pycache__/
 .coverage
 dist/
 build/
-!**/src/main/**/build/
-!**/src/test/**/build/
 output/
-out/
 input/
 .staging/
 .DS_Store
 *.egg
-
-### VS Code ###
-.vscode/
-
-###jython cache
-**/.jython_cache/
-
-META-INF/
-checkstyle/
-export.proto
-org/
-schema/
-text_import.proto
-type.proto
-
+.mypy_cache/
+nohup.out
+xbom-output/
 .gstack/

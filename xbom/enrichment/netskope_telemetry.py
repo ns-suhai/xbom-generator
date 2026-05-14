@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 from dataclasses import replace
 
-import requests
+import requests  # type: ignore[import]
 
 from xbom.exceptions import EnrichmentError
 from xbom.models.bom_types import BomEntry, BomType
@@ -15,7 +14,6 @@ from xbom.models.bom_types import BomEntry, BomType
 logger = logging.getLogger(__name__)
 
 _API_TIMEOUT = 10
-_SAFE_DOMAIN = re.compile(r'^[a-zA-Z0-9.\-]+$')
 _NETSKOPE_TOKEN_ENV = "NETSKOPE_API_TOKEN"
 _NETSKOPE_TENANT_ENV = "NETSKOPE_TENANT_URL"
 
@@ -36,10 +34,6 @@ def enrich_saasbom(entries: list[BomEntry]) -> list[BomEntry]:
             "Netskope enrichment skipped: set %s and %s env vars",
             _NETSKOPE_TOKEN_ENV, _NETSKOPE_TENANT_ENV,
         )
-        return entries
-
-    if not tenant.startswith("https://"):
-        logger.error("NETSKOPE_TENANT_URL must use HTTPS: %s", tenant)
         return entries
 
     enriched: list[BomEntry] = []
@@ -65,11 +59,8 @@ def enrich_saasbom(entries: list[BomEntry]) -> list[BomEntry]:
     return enriched
 
 
-def _query_netskope(tenant: str, token: str, domain: str) -> dict:
+def _query_netskope(tenant: str, token: str, domain: str) -> dict[str, object]:
     """Query Netskope API for traffic data about a domain."""
-    if not _SAFE_DOMAIN.match(domain):
-        raise EnrichmentError(f"Invalid domain format, skipping: {domain}")
-
     url = f"{tenant.rstrip('/')}/api/v2/events/data/application"
     headers = {"Netskope-Api-Token": token}
     params = {

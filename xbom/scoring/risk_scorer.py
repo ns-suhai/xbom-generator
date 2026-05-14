@@ -102,24 +102,44 @@ def _score_ml(entries: tuple[BomEntry, ...]) -> float:
 
 
 def _score_skills(entries: tuple[BomEntry, ...]) -> float:
-    """Score based on SkillBom findings severity."""
+    """Score based on SkillBom findings severity and lineage signals."""
     skills = [e for e in entries if e.bom_type == BomType.SKILLBOM]
     if not skills:
         return 5.0
     max_sev = None
+    total_findings = 0
+    has_version = False
+    has_referenced_scripts = False
+
     for s in skills:
         sev = s.metadata.get("max_severity")
+        total_findings += s.metadata.get("finding_count", 0)
         if sev == "CRITICAL":
             return 1.0
         if sev == "HIGH":
             max_sev = "HIGH"
         elif sev == "MEDIUM" and max_sev is None:
             max_sev = "MEDIUM"
+        # Lineage signals
+        provenance = s.metadata.get("provenance", {})
+        if provenance.get("version"):
+            has_version = True
+        if s.metadata.get("referenced_scripts"):
+            has_referenced_scripts = True
+
+    base_score = 5.0
     if max_sev == "HIGH":
-        return 2.5
-    if max_sev == "MEDIUM":
-        return 4.0
-    return 5.0
+        base_score = 2.5
+    elif max_sev == "MEDIUM":
+        base_score = 4.0
+
+    # Lineage penalties (only apply when provenance data is present)
+    if has_version is False and total_findings > 0:
+        base_score -= 0.3  # No version pinning + findings → harder to audit
+    if has_referenced_scripts and total_findings > 3:
+        base_score -= 0.5  # Scripts with many findings → higher risk
+
+    return max(1.0, min(5.0, base_score))
 
 
 def compute_risk_score(

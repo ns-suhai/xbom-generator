@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -22,17 +21,10 @@ class SecretsAnalyzer(BaseAnalyzer):
     def name(self) -> str:
         return "secrets"
 
-    def _resolve_binary(self) -> str | None:
-        """Resolve detect-secrets to an absolute path."""
-        return shutil.which("detect-secrets")
-
     def is_available(self) -> bool:
         try:
-            binary = self._resolve_binary()
-            if not binary:
-                return False
             subprocess.run(
-                [binary, "--version"],
+                ["detect-secrets", "--version"],
                 capture_output=True, timeout=5,
             )
             return True
@@ -44,14 +36,13 @@ class SecretsAnalyzer(BaseAnalyzer):
         extracted_dir: Path,
         classified_files: dict[str, list[Path]],
     ) -> list[BomEntry]:
-        binary = self._resolve_binary()
-        if not binary:
+        if not self.is_available():
             logger.warning("detect-secrets not available, skipping secrets analysis")
             return []
 
         try:
             result = subprocess.run(
-                [binary, "scan", str(extracted_dir), "--all-files"],
+                ["detect-secrets", "scan", str(extracted_dir), "--all-files"],
                 capture_output=True,
                 text=True,
                 timeout=120,
